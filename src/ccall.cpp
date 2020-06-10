@@ -15,17 +15,17 @@ static bool runtime_sym_gvs(jl_codegen_params_t &emission_context, const char *f
     jl_codegen_params_t::SymMapGV *symMap;
 #ifdef _OS_WINDOWS_
     if ((intptr_t)f_lib == 1) {
-        libptrgv = jlexe_var;
+        libptrgv = prepare_global_in(M, jlexe_var);
         symMap = &emission_context.symMapExe;
     }
     else if ((intptr_t)f_lib == 2) {
-        libptrgv = jldll_var;
+        libptrgv = prepare_global_in(M, jldll_var);
         symMap = &emission_context.symMapDl;
     }
     else
 #endif
     if (f_lib == NULL) {
-        libptrgv = jlRTLD_DEFAULT_var;
+        libptrgv = prepare_global_in(M, jlRTLD_DEFAULT_var);
         symMap = &emission_context.symMapDefault;
     }
     else {

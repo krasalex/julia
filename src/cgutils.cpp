@@ -332,7 +332,7 @@ static Value *julia_pgv(jl_codectx_t &ctx, const char *prefix, jl_sym_t *name, j
     return julia_pgv(ctx, fullname, addr);
 }
 
-static GlobalVariable *julia_const_gv(jl_value_t *val);
+static JuliaVariable *julia_const_gv(jl_value_t *val);
 static Value *literal_pointer_val_slot(jl_codectx_t &ctx, jl_value_t *p)
 {
     // emit a pointer to a jl_value_t* which will allow it to be valid across reloading code
@@ -345,7 +345,7 @@ static Value *literal_pointer_val_slot(jl_codectx_t &ctx, jl_value_t *p)
         gv->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
         return gv;
     }
-    if (GlobalVariable *gv = julia_const_gv(p)) {
+    if (JuliaVariable *gv = julia_const_gv(p)) {
         // if this is a known special object, use the existing GlobalValue
         return prepare_global_in(jl_Module, gv);
     }

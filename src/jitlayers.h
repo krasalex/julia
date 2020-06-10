@@ -132,13 +132,23 @@ static inline GlobalVariable *prepare_global_in(Module *M, GlobalVariable *G)
     return cast<GlobalVariable>(local);
 }
 
-void add_named_global(GlobalObject *gv, void *addr, bool dllimport);
+void add_named_global(StringRef name, void *addr);
 template<typename T>
-static inline void add_named_global(GlobalObject *gv, T *addr, bool dllimport = true)
+static inline void add_named_global(StringRef name, T *addr)
 {
     // cast through integer to avoid c++ pedantic warning about casting between
     // data and code pointers
-    add_named_global(gv, (void*)(uintptr_t)addr, dllimport);
+    add_named_global(name, (void*)(uintptr_t)addr);
+}
+static inline void add_named_global(GlobalObject *gv, void *addr, bool dllimport=false) {
+    add_named_global(gv->getName(), addr);
+}
+template<typename T>
+static inline void add_named_global(GlobalObject *gv, T *addr, bool dllimport=false)
+{
+    // cast through integer to avoid c++ pedantic warning about casting between
+    // data and code pointers
+    add_named_global(gv->getName(), (void*)(uintptr_t)addr);
 }
 
 static inline Constant *literal_static_pointer_val(const void *p, Type *T)
@@ -212,7 +222,6 @@ public:
                          const object::ObjectFile &Obj,
                          const RuntimeDyld::LoadedObjectInfo &LoadedObjectInfo);
     void addGlobalMapping(StringRef Name, uint64_t Addr);
-    void addGlobalMapping(const GlobalValue *GV, void *Addr);
     void *getPointerToGlobalIfAvailable(StringRef S);
     void *getPointerToGlobalIfAvailable(const GlobalValue *GV);
     void addModule(std::unique_ptr<Module> M);

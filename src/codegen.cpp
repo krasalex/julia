@@ -272,22 +272,162 @@ static bool is_uniquerep_Type(jl_value_t *t)
     return jl_is_type_type(t) && type_has_unique_rep(jl_tparam0(t));
 }
 
+class jl_codectx_t;
+struct JuliaVariable {
+public:
+    StringLiteral name;
+    bool isconst;
+    Type *(*_type)(LLVMContext &C);
+
+    JuliaVariable(const JuliaVariable&) = delete;
+    JuliaVariable(const JuliaVariable&&) = delete;
+    GlobalVariable *realize(Module *m) {
+        if (GlobalValue *V = m->getNamedValue(name))
+            return cast<GlobalVariable>(V);
+        return new GlobalVariable(*m, _type(m->getContext()),
+                isconst, GlobalVariable::ExternalLinkage,
+                NULL, name);
+    }
+    GlobalVariable *realize(jl_codectx_t &ctx);
+};
+template<typename T>
+static inline void add_named_global(JuliaVariable *name, T *addr)
+{
+    // cast through integer to avoid c++ pedantic warning about casting between
+    // data and code pointers
+    add_named_global(name->name, (void*)(uintptr_t)addr);
+}
+static inline void add_named_global(JuliaVariable *name, void *addr)
+{
+    add_named_global(name->name, addr);
+}
+
+struct JuliaFunction {
+public:
+    StringLiteral name;
+    FunctionType *(*_type)(LLVMContext &C);
+    AttributeList (*_attrs)(LLVMContext &C);
+
+    JuliaFunction(const JuliaFunction&) = delete;
+    JuliaFunction(const JuliaFunction&&) = delete;
+    Function *realize(Module *m) {
+        if (GlobalValue *V = m->getNamedValue(name))
+            return cast<Function>(V);
+        Function *F = Function::Create(_type(m->getContext()),
+                         Function::ExternalLinkage,
+                         name, m);
+        if (_attrs)
+            F->setAttributes(_attrs(m->getContext()));
+        return F;
+    }
+    Function *realize(jl_codectx_t &ctx);
+};
+template<typename T>
+static inline void add_named_global(JuliaFunction *name, T *addr)
+{
+    // cast through integer to avoid c++ pedantic warning about casting between
+    // data and code pointers
+    add_named_global(name->name, (void*)(uintptr_t)addr);
+}
+static inline void add_named_global(JuliaFunction *name, void *addr)
+{
+    add_named_global(name->name, addr);
+}
+
+
+static Type *get_pjlvalue(LLVMContext &C) { return T_pjlvalue; }
+static FunctionType *get_func_sig(LLVMContext &C) { return jl_func_sig; }
+
 // global vars
-static GlobalVariable *jlRTLD_DEFAULT_var;
+static const auto jlRTLD_DEFAULT_var = new JuliaVariable{
+    "jl_RTLD_DEFAULT_handle",
+    true,
+    [](LLVMContext &C) { return T_pint8; },
+};
 #ifdef _OS_WINDOWS_
-static GlobalVariable *jlexe_var;
-static GlobalVariable *jldll_var;
+static const auto jlexe_var = new JuliaVariable{
+    "jl_exe_handle",
+    true,
+    [](LLVMContext &C) { return T_pint8; },
+};
+static const auto jldll_var = new JuliaVariable{
+    "jl_dl_handle",
+    true,
+    [](LLVMContext &C) { return T_pint8; },
+};
 #endif //_OS_WINDOWS_
 
-static Function *jltls_states_func;
+static const auto jlstack_chk_guard_var = new JuliaVariable{
+    "__stack_chk_guard",
+    true,
+    get_pjlvalue,
+};
+
+static const auto jlgetworld_global = new JuliaVariable{
+    "jl_world_counter",
+    false,
+    [](LLVMContext &C) { return (Type*)T_size; },
+};
+
+static const auto jltls_states_func = new JuliaFunction{
+    "julia.ptls_states",
+    [](LLVMContext &C) { return FunctionType::get(PointerType::get(T_ppjlvalue, 0), false); },
+};
 
 // important functions
-static Function *jlnew_func;
-static Function *jlsplatnew_func;
-static Function *jlthrow_func;
-static Function *jlerror_func;
-static Function *jltypeerror_func;
-static Function *jlundefvarerror_func;
+static const auto jlnew_func = new JuliaFunction{
+    "jl_new_structv",
+    get_func_sig,
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NonNull), Thunk})),
+            AttributeSet(),
+            None); },
+};
+static const auto jlsplatnew_func = new JuliaFunction{
+    "jl_new_structt",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {T_prjlvalue, T_prjlvalue}, false); },
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NonNull), Thunk})),
+            AttributeSet(),
+            None); },
+};
+static const auto jlthrow_func = new JuliaFunction{
+    "jl_throw",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {PointerType::get(T_jlvalue, AddressSpace::CalleeRooted)}, false); },
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
+            AttributeSet(),
+            None); },
+};
+static const auto jlerror_func = new JuliaFunction{
+    "jl_error",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {T_pint8}, false); },
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
+            AttributeSet(),
+            None); },
+};
+static const auto jltypeerror_func = new JuliaFunction{
+    "jl_type_error",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {T_pint8, T_prjlvalue, PointerType::get(T_jlvalue, AddressSpace::CalleeRooted)}, false); },
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
+            AttributeSet(),
+            None); },
+};
+static const auto jlundefvarerror_func = new JuliaFunction{
+    "jl_undefined_var_error",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {PointerType::get(T_jlvalue, AddressSpace::CalleeRooted)}, false); },
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
+            AttributeSet(),
+            None); },
+};
 static Function *jlboundserror_func;
 static Function *jluboundserror_func;
 static Function *jlvboundserror_func;
@@ -344,7 +484,6 @@ static Function *jlgetcfunctiontrampoline_func;
 static Function *diff_gc_total_bytes_func;
 static Function *sync_gc_total_bytes_func;
 static Function *jlarray_data_owner_func;
-static GlobalVariable *jlgetworld_global;
 
 // placeholder functions
 static Function *gcroot_flush_func;
@@ -589,6 +728,10 @@ public:
     }
 };
 
+GlobalVariable *JuliaVariable::realize(jl_codectx_t &ctx) {
+    return realize(jl_Module);
+}
+
 static Type *julia_type_to_llvm(jl_codectx_t &ctx, jl_value_t *jt, bool *isboxed = NULL);
 static jl_returninfo_t get_specsig_function(jl_codectx_t &ctx, Module *M, StringRef name, jl_value_t *sig, jl_value_t *jlrettype);
 static jl_cgval_t emit_expr(jl_codectx_t &ctx, jl_value_t *expr, ssize_t ssaval = -1);
@@ -601,10 +744,22 @@ static void allocate_gc_frame(jl_codectx_t &ctx, BasicBlock *b0);
 static void CreateTrap(IRBuilder<> &irbuilder);
 static CallInst *emit_jlcall(jl_codectx_t &ctx, Value *theFptr, Value *theF,
                              jl_cgval_t *args, size_t nargs, CallingConv::ID cc);
+static CallInst *emit_jlcall(jl_codectx_t &ctx, JuliaFunction *theFptr, Value *theF,
+                             jl_cgval_t *args, size_t nargs, CallingConv::ID cc);
 
 static Value *literal_pointer_val(jl_codectx_t &ctx, jl_value_t *p);
 static GlobalVariable *prepare_global_in(Module *M, GlobalVariable *G);
 static Instruction *tbaa_decorate(MDNode *md, Instruction *load_or_store);
+
+static GlobalVariable *prepare_global_in(Module *M, JuliaVariable *G)
+{
+    return G->realize(M);
+}
+static FunctionCallee prepare_call_in(Module *M, JuliaFunction *G)
+{
+    return G->realize(M);
+}
+
 
 // --- convenience functions for tagging llvm values with julia types ---
 
@@ -2633,6 +2788,11 @@ static CallInst *emit_jlcall(jl_codectx_t &ctx, Value *theFptr, Value *theF,
     result->setCallingConv(cc);
     return result;
 }
+static CallInst *emit_jlcall(jl_codectx_t &ctx, JuliaFunction *theFptr, Value *theF,
+                             jl_cgval_t *argv, size_t nargs, CallingConv::ID cc)
+{
+    return emit_jlcall(ctx, prepare_call(theFptr).getCallee(), theF, argv, nargs, cc);
+}
 
 
 static jl_cgval_t emit_call_specfun_other(jl_codectx_t &ctx, jl_method_instance_t *mi, jl_value_t *jlretty, StringRef specFunctionObject,
@@ -2849,7 +3009,7 @@ static jl_cgval_t emit_invoke(jl_codectx_t &ctx, jl_expr_t *ex, jl_value_t *rt)
         }
     }
     if (!handled) {
-        Value *r = emit_jlcall(ctx, prepare_call(jlinvoke_func).getCallee(), boxed(ctx, lival), argv, nargs, JLCALL_F2_CC);
+        Value *r = emit_jlcall(ctx, jlinvoke_func, boxed(ctx, lival), argv, nargs, JLCALL_F2_CC);
         result = mark_julia_type(ctx, r, true, rt);
     }
     if (result.typ == jl_bottom_type)
@@ -4327,7 +4487,7 @@ static Function* gen_cfun_wrapper(
             ctx.builder.CreateBr(b_after);
             ctx.builder.SetInsertPoint(b_generic);
         }
-        Value *ret = emit_jlcall(ctx, prepare_call(jlapplygeneric_func).getCallee(), NULL, inputargs, nargs + 1, JLCALL_F_CC);
+        Value *ret = emit_jlcall(ctx, jlapplygeneric_func, NULL, inputargs, nargs + 1, JLCALL_F_CC);
         if (age_ok) {
             ctx.builder.CreateBr(b_after);
             ctx.builder.SetInsertPoint(b_after);
@@ -4717,12 +4877,8 @@ void jl_generate_ccallable(void *llvmmod, void *sysimg_handle, jl_value_t *declr
                 // restore a ccallable from the system image
                 void *addr;
                 int found = jl_dlsym(sysimg_handle, name, &addr, 0);
-                if (found) {
-                    FunctionType *ftype = sig.functype();
-                    Function *F = Function::Create(ftype, GlobalVariable::ExternalLinkage, name);
-                    add_named_global(F, addr);
-                    delete F;
-                }
+                if (found)
+                    add_named_global(name, addr);
             }
             else {
                 jl_method_instance_t *lam = jl_get_specialization1((jl_tupletype_t*)sigt, world, &min_valid, &max_valid, 0);
@@ -5622,7 +5778,7 @@ static std::pair<std::unique_ptr<Module>, jl_llvm_functions_t>
                 emit_varinfo_assign(ctx, vi, tuple);
             }
             else {
-                restTuple = emit_jlcall(ctx, prepare_call(jltuple_func).getCallee(), maybe_decay_untracked(V_null),
+                restTuple = emit_jlcall(ctx, jltuple_func, maybe_decay_untracked(V_null),
                     vargs, ctx.nvargs, JLCALL_F_CC);
                 jl_cgval_t tuple = mark_julia_type(ctx, restTuple, true, vi.value.typ);
                 emit_varinfo_assign(ctx, vi, tuple);
@@ -6650,24 +6806,14 @@ std::pair<MDNode*,MDNode*> tbaa_make_child(const char *name, MDNode *parent=null
     return std::make_pair(n, scalar);
 }
 
-static GlobalVariable *global_to_llvm(const std::string &cname, void *addr, Module *m)
+std::vector<std::pair<jl_value_t**, JuliaVariable*>> gv_for_global;
+static void global_jlvalue_to_llvm(JuliaVariable *var, jl_value_t **addr)
 {
-    GlobalVariable *gv =
-        new GlobalVariable(*m, T_pjlvalue, true,
-                           GlobalVariable::ExternalLinkage, NULL, cname);
-    add_named_global(gv, addr);
-    return gv;
+    gv_for_global.push_back(std::make_pair(addr, var));
 }
-llvm::SmallVector<std::pair<jl_value_t**, GlobalVariable*>, 16> gv_for_global;
-static GlobalVariable *global_jlvalue_to_llvm(const std::string &cname, jl_value_t **addr, Module *m)
+static JuliaVariable *julia_const_gv(jl_value_t *val)
 {
-    GlobalVariable *gv = global_to_llvm(cname, (void*)addr, m);
-    gv_for_global.push_back(std::make_pair(addr, gv));
-    return gv;
-}
-static GlobalVariable *julia_const_gv(jl_value_t *val)
-{
-    for (auto& kv : gv_for_global) {
+    for (auto &kv : gv_for_global) {
         if (*kv.first == val)
             return kv.second;
     }
@@ -6817,68 +6963,27 @@ static void init_julia_llvm_env(Module *m)
         StructType::create(jl_LLVMContext, makeArrayRef(vaelts), "jl_array_t");
     jl_parray_llvmt = PointerType::get(jl_array_llvmt, 0);
 
-    global_to_llvm("__stack_chk_guard", (void*)&__stack_chk_guard, m);
-    Function *jl__stack_chk_fail =
-        Function::Create(FunctionType::get(T_void, false),
-                         Function::ExternalLinkage,
-                         "__stack_chk_fail", m);
-    jl__stack_chk_fail->setDoesNotReturn();
-    add_named_global(jl__stack_chk_fail, &__stack_chk_fail);
-
-    global_jlvalue_to_llvm("jl_true", &jl_true, m);
-    global_jlvalue_to_llvm("jl_false", &jl_false, m);
-    global_jlvalue_to_llvm("jl_emptysvec", (jl_value_t**)&jl_emptysvec, m);
-    global_jlvalue_to_llvm("jl_emptytuple", &jl_emptytuple, m);
-    global_jlvalue_to_llvm("jl_diverror_exception", &jl_diverror_exception, m);
-    global_jlvalue_to_llvm("jl_undefref_exception", &jl_undefref_exception, m);
-
-    jlRTLD_DEFAULT_var =
-        new GlobalVariable(*m, T_pint8,
-                           true, GlobalVariable::ExternalLinkage,
-                           NULL, "jl_RTLD_DEFAULT_handle");
+    add_named_global(jlstack_chk_guard_var, &__stack_chk_guard);
     add_named_global(jlRTLD_DEFAULT_var, &jl_RTLD_DEFAULT_handle);
 #ifdef _OS_WINDOWS_
-    jlexe_var =
-        new GlobalVariable(*m, T_pint8,
-                           true, GlobalVariable::ExternalLinkage,
-                           NULL, "jl_exe_handle");
     add_named_global(jlexe_var, &jl_exe_handle);
-    jldll_var =
-        new GlobalVariable(*m, T_pint8,
-                           true, GlobalVariable::ExternalLinkage,
-                           NULL, "jl_dl_handle");
     add_named_global(jldll_var, &jl_dl_handle);
 #endif
 
-    jltls_states_func = Function::Create(FunctionType::get(PointerType::get(T_ppjlvalue, 0), false),
-                                         Function::ExternalLinkage, "julia.ptls_states");
-    add_named_global(jltls_states_func, (void*)NULL, /*dllimport*/false);
-
-    std::vector<Type*> args1(0);
-    args1.push_back(T_pint8);
-    jlerror_func =
-        Function::Create(FunctionType::get(T_void, args1, false),
-                         Function::ExternalLinkage,
-                         "jl_error", m);
-    jlerror_func->setDoesNotReturn();
+    global_jlvalue_to_llvm(new JuliaVariable{"jl_true", true, get_pjlvalue}, &jl_true);
+    global_jlvalue_to_llvm(new JuliaVariable{"jl_false", true, get_pjlvalue}, &jl_false);
+    global_jlvalue_to_llvm(new JuliaVariable{"jl_emptysvec", true, get_pjlvalue}, (jl_value_t**)&jl_emptysvec);
+    global_jlvalue_to_llvm(new JuliaVariable{"jl_emptytuple", true, get_pjlvalue}, &jl_emptytuple);
+    global_jlvalue_to_llvm(new JuliaVariable{"jl_diverror_exception", true, get_pjlvalue}, &jl_diverror_exception);
+    global_jlvalue_to_llvm(new JuliaVariable{"jl_undefref_exception", true, get_pjlvalue}, &jl_undefref_exception);
+    add_named_global(jlgetworld_global, &jl_world_counter);
+    add_named_global("__stack_chk_fail", &__stack_chk_fail);
+    add_named_global(jltls_states_func, (void*)NULL);
     add_named_global(jlerror_func, &jl_error);
-
-    std::vector<Type*> args1_(0);
-    args1_.push_back(PointerType::get(T_jlvalue, AddressSpace::CalleeRooted));
-    jlthrow_func =
-        Function::Create(FunctionType::get(T_void, args1_, false),
-                         Function::ExternalLinkage,
-                         "jl_throw", m);
-    jlthrow_func->setDoesNotReturn();
     add_named_global(jlthrow_func, &jl_throw);
 
     // Symbols are not gc-tracked, but we'll treat them as callee rooted anyway,
     // because they may come from a gc-rooted location
-    jlundefvarerror_func =
-        Function::Create(FunctionType::get(T_void, args1_, false),
-                         Function::ExternalLinkage,
-                         "jl_undefined_var_error", m);
-    jlundefvarerror_func->setDoesNotReturn();
     add_named_global(jlundefvarerror_func, &jl_undefined_var_error);
 
     std::vector<Type*> args2_boundserrorv(0);
@@ -6924,22 +7029,7 @@ static void init_julia_llvm_env(Module *m)
     jluboundserror_func->setDoesNotReturn();
     add_named_global(jluboundserror_func, &jl_bounds_error_unboxed_int);
 
-    jlnew_func =
-        Function::Create(jl_func_sig, Function::ExternalLinkage,
-                         "jl_new_structv", m);
-    add_return_attr(jlnew_func, Attribute::NonNull);
-    jlnew_func->addFnAttr(Thunk);
     add_named_global(jlnew_func, &jl_new_structv);
-
-    std::vector<Type *> args_2rptrs_(0);
-    args_2rptrs_.push_back(T_prjlvalue);
-    args_2rptrs_.push_back(T_prjlvalue);
-    jlsplatnew_func =
-        Function::Create(FunctionType::get(T_prjlvalue, args_2rptrs_, false),
-                         Function::ExternalLinkage,
-                         "jl_new_structt", m);
-    add_return_attr(jlsplatnew_func, Attribute::NonNull);
-    jlsplatnew_func->addFnAttr(Thunk);
     add_named_global(jlsplatnew_func, &jl_new_structt);
 
     std::vector<Type*> args2(0);
@@ -6966,15 +7056,6 @@ static void init_julia_llvm_env(Module *m)
     add_named_global(memcmp_func, &memcmp);
     // TODO: inferLibFuncAttributes(*memcmp_func, TLI);
 
-    std::vector<Type*> te_args(0);
-    te_args.push_back(T_pint8);
-    te_args.push_back(T_prjlvalue);
-    te_args.push_back(PointerType::get(T_jlvalue, AddressSpace::CalleeRooted));
-    jltypeerror_func =
-        Function::Create(FunctionType::get(T_void, te_args, false),
-                         Function::ExternalLinkage,
-                         "jl_type_error", m);
-    jltypeerror_func->setDoesNotReturn();
     add_named_global(jltypeerror_func, &jl_type_error);
 
     std::vector<Type *> args_2ptrs(0);
@@ -7360,12 +7441,6 @@ static void init_julia_llvm_env(Module *m)
                                          "julia.except_enter");
     except_enter_func->addFnAttr(Attribute::ReturnsTwice);
     add_named_global(except_enter_func, (void*)NULL, /*dllimport*/false);
-
-    jlgetworld_global =
-        new GlobalVariable(*m, T_size,
-                           false, GlobalVariable::ExternalLinkage,
-                           NULL, "jl_world_counter");
-    add_named_global(jlgetworld_global, &jl_world_counter);
 }
 
 extern "C" void jl_init_llvm(void)
