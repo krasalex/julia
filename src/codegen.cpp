@@ -338,6 +338,13 @@ static inline void add_named_global(JuliaFunction *name, void *addr)
 static Type *get_pjlvalue(LLVMContext &C) { return T_pjlvalue; }
 static FunctionType *get_func_sig(LLVMContext &C) { return jl_func_sig; }
 
+static AttributeList get_attrs_noreturn(LLVMContext &C) {
+    return AttributeList::get(C,
+                AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
+                AttributeSet(),
+                None);
+}
+
 // global vars
 static const auto jlRTLD_DEFAULT_var = new JuliaVariable{
     "jl_RTLD_DEFAULT_handle",
@@ -374,6 +381,7 @@ static const auto jltls_states_func = new JuliaFunction{
     [](LLVMContext &C) { return FunctionType::get(PointerType::get(T_ppjlvalue, 0), false); },
 };
 
+
 // important functions
 static const auto jlnew_func = new JuliaFunction{
     "jl_new_structv",
@@ -396,55 +404,128 @@ static const auto jlthrow_func = new JuliaFunction{
     "jl_throw",
     [](LLVMContext &C) { return FunctionType::get(T_void,
             {PointerType::get(T_jlvalue, AddressSpace::CalleeRooted)}, false); },
-    [](LLVMContext &C) { return AttributeList::get(C,
-            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
-            AttributeSet(),
-            None); },
+    get_attrs_noreturn,
 };
 static const auto jlerror_func = new JuliaFunction{
     "jl_error",
     [](LLVMContext &C) { return FunctionType::get(T_void,
             {T_pint8}, false); },
-    [](LLVMContext &C) { return AttributeList::get(C,
-            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
-            AttributeSet(),
-            None); },
+    get_attrs_noreturn,
 };
 static const auto jltypeerror_func = new JuliaFunction{
     "jl_type_error",
     [](LLVMContext &C) { return FunctionType::get(T_void,
             {T_pint8, T_prjlvalue, PointerType::get(T_jlvalue, AddressSpace::CalleeRooted)}, false); },
-    [](LLVMContext &C) { return AttributeList::get(C,
-            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
-            AttributeSet(),
-            None); },
+    get_attrs_noreturn,
 };
 static const auto jlundefvarerror_func = new JuliaFunction{
     "jl_undefined_var_error",
     [](LLVMContext &C) { return FunctionType::get(T_void,
             {PointerType::get(T_jlvalue, AddressSpace::CalleeRooted)}, false); },
+    get_attrs_noreturn,
+};
+static const auto jlboundserrorv_func = new JuliaFunction{
+    "jl_bounds_error_ints",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {PointerType::get(T_jlvalue, AddressSpace::CalleeRooted), T_psize, T_size}, false); },
+    get_attrs_noreturn,
+};
+static const auto jlboundserror_func = new JuliaFunction{
+    "jl_bounds_error_int",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {PointerType::get(T_jlvalue, AddressSpace::CalleeRooted), T_size}, false); },
+    get_attrs_noreturn,
+};
+static const auto jlvboundserror_func = new JuliaFunction{
+    "jl_bounds_error_tuple_int",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {T_pprjlvalue, T_size, T_size}, false); },
+    get_attrs_noreturn,
+};
+static const auto jluboundserror_func = new JuliaFunction{
+    "jl_bounds_error_unboxed_int",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {PointerType::get(T_int8, AddressSpace::Derived), T_pjlvalue, T_size}, false); },
+    get_attrs_noreturn,
+};
+static const auto jlcheckassign_func = new JuliaFunction{
+    "jl_checked_assignment",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {T_pjlvalue, PointerType::get(T_jlvalue, AddressSpace::CalleeRooted)}, false); },
+    get_attrs_noreturn,
+};
+static const auto jldeclareconst_func = new JuliaFunction{
+    "jl_declare_constant",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+            {T_pjlvalue}, false); },
+};
+static const auto jlgetbindingorerror_func = new JuliaFunction{
+    "jl_get_binding_or_error",
+    [](LLVMContext &C) { return FunctionType::get(T_pjlvalue,
+                {T_pjlvalue, T_pjlvalue}, false); },
+};
+static const auto jlboundp_func = new JuliaFunction{
+    "jl_boundp",
+    [](LLVMContext &C) { return FunctionType::get(T_int32,
+                {T_pjlvalue, T_pjlvalue}, false); },
+};
+static const auto jltopeval_func = new JuliaFunction{
+    "jl_toplevel_eval",
+    [](LLVMContext &C) { return FunctionType::get(T_pjlvalue,
+                {T_pjlvalue, T_pjlvalue}, false); },
     [](LLVMContext &C) { return AttributeList::get(C,
-            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NoReturn)})),
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NonNull)})),
             AttributeSet(),
             None); },
 };
-static Function *jlboundserror_func;
-static Function *jluboundserror_func;
-static Function *jlvboundserror_func;
-static Function *jlboundserrorv_func;
-static Function *jlcheckassign_func;
-static Function *jldeclareconst_func;
-static Function *jlgetbindingorerror_func;
-static Function *jlboundp_func;
-static Function *jltopeval_func;
-static Function *jlcopyast_func;
+static const auto jlcopyast_func = new JuliaFunction{
+    "jl_copy_ast",
+    [](LLVMContext &C) { return FunctionType::get(T_pjlvalue,
+                {T_pjlvalue}, false); },
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NonNull)})),
+            AttributeSet(),
+            None); },
+};
+static const auto jlnsvec_func = new JuliaFunction{
+    "jl_svec",
+    [](LLVMContext &C) { return FunctionType::get(T_pjlvalue,
+                {T_size}, false); },
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NonNull)})),
+            AttributeSet(),
+            None); },
+};
+static const auto jlapplygeneric_func = new JuliaFunction{
+    "jl_apply_generic",
+    get_func_sig,
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NonNull), Thunk})),
+            AttributeSet(),
+            None); },
+};
+static const auto jlinvoke_func = new JuliaFunction{
+    "jl_invoke",
+    [](LLVMContext &C) { return FunctionType::get(T_pjlvalue,
+                {T_prjlvalue, T_pprjlvalue, T_uint32, T_prjlvalue}, false); },
+    [](LLVMContext &C) { return AttributeList::get(C,
+            AttributeSet(),
+            AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::NonNull)})),
+            {AttributeSet(),
+             AttributeSet::get(C, makeArrayRef({Attribute::get(C, Attribute::ReadOnly), Attribute::get(C, Attribute::NoCapture)}))}); },
+};
+static const auto jlmethod_func = new JuliaFunction{
+    "jl_method_def",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+                {T_prjlvalue, T_prjlvalue, T_pjlvalue}, false); },
+};
+static const auto jlgenericfunction_func = new JuliaFunction{
+    "jl_generic_function_def",
+    [](LLVMContext &C) { return FunctionType::get(T_void,
+                {T_pjlvalue, T_pjlvalue, T_ppjlvalue, T_pjlvalue, T_pjlvalue}, false); },
+};
 static Function *jltuple_func;
-static Function *jlnsvec_func;
-static Function *jlapplygeneric_func;
-static Function *jlinvoke_func;
 static Function *jlgetfield_func;
-static Function *jlmethod_func;
-static Function *jlgenericfunction_func;
 static Function *jlenter_func;
 static Function *jl_current_exception_func;
 static Function *jlleave_func;
@@ -4072,7 +4153,7 @@ static Function *emit_tojlinvoke(jl_code_instance_t *codeinst, Module *M, jl_cod
     Value *theFarg;
     if (codeinst->invoke != NULL) {
         StringRef theFptrName = jl_ExecutionEngine->getFunctionAtAddress((uintptr_t)codeinst->invoke, codeinst);
-        theFunc = M->getOrInsertFunction(theFptrName, jlinvoke_func->getFunctionType());
+        theFunc = M->getOrInsertFunction(theFptrName, jlinvoke_func->_type(jl_LLVMContext));
         theFarg = literal_pointer_val(ctx, (jl_value_t*)codeinst);
     }
     else {
@@ -4092,7 +4173,7 @@ static void emit_cfunc_invalidate(
         jl_value_t *calltype, jl_value_t *rettype,
         size_t nargs,
         jl_codegen_params_t &params,
-        Function *target=jlapplygeneric_func)
+        Value *target)
 {
     jl_codectx_t ctx(jl_LLVMContext, params);
     ctx.f = gf_thunk;
@@ -4179,6 +4260,16 @@ static void emit_cfunc_invalidate(
         break;
     }
     }
+}
+
+static void emit_cfunc_invalidate(
+        Function *gf_thunk, jl_returninfo_t::CallingConv cc, unsigned return_roots,
+        jl_value_t *calltype, jl_value_t *rettype,
+        size_t nargs,
+        jl_codegen_params_t &params)
+{
+    emit_cfunc_invalidate(gf_thunk, cc, return_roots, calltype, rettype, nargs, params,
+        prepare_call_in(gf_thunk->getParent(), jlapplygeneric_func).getCallee());
 }
 
 static Function* gen_cfun_wrapper(
@@ -6894,8 +6985,6 @@ static void init_julia_llvm_env(Module *m)
     T_void = Type::getVoidTy(jl_LLVMContext);
     T_pvoidfunc = FunctionType::get(T_void, /*isVarArg*/false)->getPointerTo();
 
-    auto T_pint8_derived = PointerType::get(T_int8, AddressSpace::Derived);
-
     // add needed base debugging definitions to our LLVM environment
     DIBuilder dbuilder(*m);
     DIFile *julia_h = dbuilder.createFile("julia.h", "");
@@ -6985,48 +7074,11 @@ static void init_julia_llvm_env(Module *m)
     // Symbols are not gc-tracked, but we'll treat them as callee rooted anyway,
     // because they may come from a gc-rooted location
     add_named_global(jlundefvarerror_func, &jl_undefined_var_error);
-
-    std::vector<Type*> args2_boundserrorv(0);
-    args2_boundserrorv.push_back(PointerType::get(T_jlvalue, AddressSpace::CalleeRooted));
-    args2_boundserrorv.push_back(T_psize);
-    args2_boundserrorv.push_back(T_size);
-    jlboundserrorv_func =
-        Function::Create(FunctionType::get(T_void, args2_boundserrorv, false),
-                         Function::ExternalLinkage,
-                         "jl_bounds_error_ints", m);
-    jlboundserrorv_func->setDoesNotReturn();
     add_named_global(jlboundserrorv_func, &jl_bounds_error_ints);
 
-    std::vector<Type*> args2_boundserror(0);
-    args2_boundserror.push_back(PointerType::get(T_jlvalue, AddressSpace::CalleeRooted));
-    args2_boundserror.push_back(T_size);
-    jlboundserror_func =
-        Function::Create(FunctionType::get(T_void, args2_boundserror, false),
-                         Function::ExternalLinkage,
-                         "jl_bounds_error_int", m);
-    jlboundserror_func->setDoesNotReturn();
     add_named_global(jlboundserror_func, &jl_bounds_error_int);
 
-    std::vector<Type*> args3_vboundserror(0);
-    args3_vboundserror.push_back(T_pprjlvalue);
-    args3_vboundserror.push_back(T_size);
-    args3_vboundserror.push_back(T_size);
-    jlvboundserror_func =
-        Function::Create(FunctionType::get(T_void, args3_vboundserror, false),
-                         Function::ExternalLinkage,
-                         "jl_bounds_error_tuple_int", m);
-    jlvboundserror_func->setDoesNotReturn();
     add_named_global(jlvboundserror_func, &jl_bounds_error_tuple_int);
-
-    std::vector<Type*> args3_uboundserror(0);
-    args3_uboundserror.push_back(T_pint8_derived);
-    args3_uboundserror.push_back(T_pjlvalue);
-    args3_uboundserror.push_back(T_size);
-    jluboundserror_func =
-        Function::Create(FunctionType::get(T_void, args3_uboundserror, false),
-                         Function::ExternalLinkage,
-                         "jl_bounds_error_unboxed_int", m);
-    jluboundserror_func->setDoesNotReturn();
     add_named_global(jluboundserror_func, &jl_bounds_error_unboxed_int);
 
     add_named_global(jlnew_func, &jl_new_structv);
@@ -7057,37 +7109,9 @@ static void init_julia_llvm_env(Module *m)
     // TODO: inferLibFuncAttributes(*memcmp_func, TLI);
 
     add_named_global(jltypeerror_func, &jl_type_error);
-
-    std::vector<Type *> args_2ptrs(0);
-    args_2ptrs.push_back(T_pjlvalue);
-    args_2ptrs.push_back(PointerType::get(T_jlvalue, AddressSpace::CalleeRooted));
-    jlcheckassign_func =
-        Function::Create(FunctionType::get(T_void, args_2ptrs, false),
-                         Function::ExternalLinkage,
-                         "jl_checked_assignment", m);
     add_named_global(jlcheckassign_func, &jl_checked_assignment);
-
-    std::vector<Type *> args_1binding(0);
-    args_1binding.push_back(T_pjlvalue);
-    jldeclareconst_func =
-        Function::Create(FunctionType::get(T_void, args_1binding, false),
-                         Function::ExternalLinkage,
-                         "jl_declare_constant", m);
     add_named_global(jldeclareconst_func, &jl_declare_constant);
-
-    std::vector<Type *> args_2ptrs_(0);
-    args_2ptrs_.push_back(T_pjlvalue);
-    args_2ptrs_.push_back(T_pjlvalue);
-    jlgetbindingorerror_func =
-        Function::Create(FunctionType::get(T_pjlvalue, args_2ptrs_, false),
-                         Function::ExternalLinkage,
-                         "jl_get_binding_or_error", m);
     add_named_global(jlgetbindingorerror_func, &jl_get_binding_or_error);
-
-    jlboundp_func =
-        Function::Create(FunctionType::get(T_int32, args_2ptrs_, false),
-                         Function::ExternalLinkage,
-                         "jl_boundp", m);
     add_named_global(jlboundp_func, &jl_boundp);
 
     builtin_func_map[jl_f_is] = jlcall_func_to_llvm("jl_f_is", &jl_f_is, m);
@@ -7122,78 +7146,17 @@ static void init_julia_llvm_env(Module *m)
     jltuple_func = builtin_func_map[jl_f_tuple];
     jlgetfield_func = builtin_func_map[jl_f_getfield];
 
-    jlapplygeneric_func = Function::Create(jl_func_sig,
-                                           Function::ExternalLinkage,
-                                           "jl_apply_generic", m);
-    add_return_attr(jlapplygeneric_func, Attribute::NonNull);
-    jlapplygeneric_func->addFnAttr(Thunk);
     add_named_global(jlapplygeneric_func, &jl_apply_generic);
-
-    std::vector<Type*> invokeargs(0);
-    invokeargs.push_back(T_prjlvalue);
-    invokeargs.push_back(T_pprjlvalue);
-    invokeargs.push_back(T_uint32);
-    invokeargs.push_back(T_prjlvalue);
-    jlinvoke_func = Function::Create(FunctionType::get(T_prjlvalue, invokeargs, false),
-                                     Function::ExternalLinkage,
-                                     "jl_invoke", m);
-    add_return_attr(jlinvoke_func, Attribute::NonNull);
-    jlinvoke_func->addAttribute(2, Attribute::ReadOnly);
-    jlinvoke_func->addAttribute(2, Attribute::NoCapture);
     add_named_global(jlinvoke_func, &jl_invoke);
 
     std::vector<Type *> exp_args(0);
     exp_args.push_back(T_int1);
     expect_func = Intrinsic::getDeclaration(m, Intrinsic::expect, exp_args);
 
-    std::vector<Type*> args_topeval(0);
-    args_topeval.push_back(T_pjlvalue);
-    args_topeval.push_back(T_pjlvalue);
-    jltopeval_func =
-        Function::Create(FunctionType::get(T_pjlvalue, args_topeval, false),
-                         Function::ExternalLinkage,
-                         "jl_toplevel_eval", m);
-    add_return_attr(jltopeval_func, Attribute::NonNull);
     add_named_global(jltopeval_func, &jl_toplevel_eval);
-
-    std::vector<Type*> args_copyast(0);
-    args_copyast.push_back(T_prjlvalue);
-    jlcopyast_func =
-        Function::Create(FunctionType::get(T_prjlvalue, args_copyast, false),
-                         Function::ExternalLinkage,
-                         "jl_copy_ast", m);
-    add_return_attr(jlcopyast_func, Attribute::NonNull);
     add_named_global(jlcopyast_func, &jl_copy_ast);
-
-    std::vector<Type*> args5(0);
-    args5.push_back(T_size);
-    jlnsvec_func =
-        Function::Create(FunctionType::get(T_pjlvalue, args5, true),
-                         Function::ExternalLinkage,
-                         "jl_svec", m);
-    add_return_attr(jlnsvec_func, Attribute::NonNull);
     add_named_global(jlnsvec_func, &jl_svec);
-
-    std::vector<Type*> mdargs(0);
-    mdargs.push_back(T_prjlvalue);
-    mdargs.push_back(T_prjlvalue);
-    mdargs.push_back(T_pjlvalue);
-    jlmethod_func =
-        Function::Create(FunctionType::get(T_void, mdargs, false),
-                         Function::ExternalLinkage,
-                         "jl_method_def", m);
     add_named_global(jlmethod_func, &jl_method_def);
-
-    std::vector<Type*> funcdefargs(0);
-    funcdefargs.push_back(T_pjlvalue);
-    funcdefargs.push_back(T_pjlvalue);
-    funcdefargs.push_back(T_pprjlvalue);
-    funcdefargs.push_back(T_pjlvalue);
-    funcdefargs.push_back(T_pjlvalue);
-    jlgenericfunction_func =
-        Function::Create(FunctionType::get(T_prjlvalue, funcdefargs, false),
-                         Function::ExternalLinkage,
-                         "jl_generic_function_def", m);
     add_named_global(jlgenericfunction_func, &jl_generic_function_def);
 
     std::vector<Type*> ehargs(0);
@@ -7298,7 +7261,7 @@ static void init_julia_llvm_env(Module *m)
 
     std::vector<Type *> objectid__args(0);
     objectid__args.push_back(T_prjlvalue);
-    objectid__args.push_back(T_pint8_derived);
+    objectid__args.push_back(PointerType::get(T_int8, AddressSpace::Derived));
     jl_object_id__func =
         Function::Create(FunctionType::get(T_size, objectid__args, false),
                          Function::ExternalLinkage,
